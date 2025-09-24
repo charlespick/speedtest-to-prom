@@ -68,8 +68,16 @@ async def fetch_latest_speedtest():
         logger.error(f"Error fetching speedtest data: {e}")
         raise HTTPException(status_code=502, detail="Error fetching speedtest data")
 
-def update_metrics_from_api_response(data):
+def update_metrics_from_api_response(response):
     try:
+        # The API response has a nested structure: response['data'] contains the speedtest data
+        if 'data' not in response:
+            logger.error("No 'data' key found in API response")
+            return
+            
+        data = response['data']
+        
+        # Set basic metrics from the top level of data
         if 'ping' in data and data['ping'] is not None:
             ping_gauge.set(float(data['ping']))
         if 'download_bits' in data and data['download_bits'] is not None:
@@ -77,13 +85,17 @@ def update_metrics_from_api_response(data):
         if 'upload_bits' in data and data['upload_bits'] is not None:
             upload_gauge.set(float(data['upload_bits']))
         
+        # The detailed data is nested under data['data']
         if 'data' in data and isinstance(data['data'], dict):
-            data_section = data['data']
-            if 'packetLoss' in data_section and data_section['packetLoss'] is not None:
-                packet_loss_gauge.set(float(data_section['packetLoss']))
+            detailed_data = data['data']
             
-            if 'ping' in data_section and isinstance(data_section['ping'], dict):
-                ping_data = data_section['ping']
+            # Packet loss might not always be present
+            if 'packetLoss' in detailed_data and detailed_data['packetLoss'] is not None:
+                packet_loss_gauge.set(float(detailed_data['packetLoss']))
+            
+            # Ping details are under data['data']['ping']
+            if 'ping' in detailed_data and isinstance(detailed_data['ping'], dict):
+                ping_data = detailed_data['ping']
                 if 'jitter' in ping_data and ping_data['jitter'] is not None:
                     ping_jitter_gauge.set(float(ping_data['jitter']))
                 if 'low' in ping_data and ping_data['low'] is not None:
