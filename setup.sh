@@ -5,15 +5,7 @@ APP_NAME="speedtest-metrics"
 PORT=8000
 INSTALL_DIR="/opt/${APP_NAME}"
 VENV_DIR="${INSTALL_DIR}/venv"
-SYSTEMD_UNIT="/etc/systemd/system/${APP_NAMEecho "5. Test the webhook:"
-echo "   curl -X POST http://localhost:${PORT}/webhook \\"
-echo "        -H 'Content-Type: application/json' \\"
-echo "        -d '{\"ping\":15.2,\"download\":937100616,\"upload\":114435608,\"packetLoss\":0}'"
-echo ""
-echo "6. View metrics:"
-echo "   curl http://localhost:${PORT}/metrics"
-echo ""
-echo "7. Check logs for debugging:""
+SYSTEMD_UNIT="/etc/systemd/system/${APP_NAME}.service"
 
 # Ensure we're root
 if [ "$EUID" -ne 0 ]; then
