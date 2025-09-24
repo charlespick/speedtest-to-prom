@@ -6,6 +6,7 @@ PORT=8000
 INSTALL_DIR="/opt/${APP_NAME}"
 VENV_DIR="${INSTALL_DIR}/venv"
 SYSTEMD_UNIT="/etc/systemd/system/${APP_NAME}.service"
+CONFIG_FILE="${INSTALL_DIR}/config.json"
 
 # Ensure we're root
 if [ "$EUID" -ne 0 ]; then
@@ -13,61 +14,104 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-# Check if this is an upgrade
-UPGRADE_MODE=false
-if [ -d "${INSTALL_DIR}" ] && [ -f "${SYSTEMD_UNIT}" ]; then
-  echo "[*] Existing installation detected. Running in upgrade mode..."
-  UPGRADE_MODE=true
-  
+echo "[*] Speedtest API Polling Exporter Setup"
+echo ""
+
+# Check if config exists and preserve it
+EXISTING_CONFIG=""
+if [ -f "${CONFIG_FILE}" ]; then
+  echo "[*] Existing configuration found"
+  read -p "Preserve current configuration? (y/n): " PRESERVE
+  if [[ "$PRESERVE" == "y" || "$PRESERVE" == "Y" ]]; then
+    EXISTING_CONFIG=$(cat "${CONFIG_FILE}")
+    echo "[*] Configuration will be preserved"
+  fi
+fi
+
+# Stop and remove existing service
+if [ -f "${SYSTEMD_UNIT}" ]; then
   echo "[*] Stopping existing service..."
   systemctl stop "${APP_NAME}.service" 2>/dev/null || true
+  systemctl disable "${APP_NAME}.service" 2>/dev/null || true
+fi
+
+# Remove existing installation
+if [ -d "${INSTALL_DIR}" ]; then
+  echo "[*] Removing existing installation..."
+  rm -rf "${INSTALL_DIR}"
+fi
+
+# Collect new configuration if not preserving
+if [ -z "$EXISTING_CONFIG" ]; then
+  echo ""
+  echo "SpeedTest Tracker Configuration:"
+  echo "================================="
   
-  echo "[*] Creating backup of current installation..."
-  BACKUP_DIR="/opt/${APP_NAME}.backup.$(date +%Y%m%d_%H%M%S)"
-  cp -r "${INSTALL_DIR}" "${BACKUP_DIR}"
-  echo "[*] Backup created at ${BACKUP_DIR}"
-else
-  echo "[*] New installation detected..."
+  while true; do
+    read -p "SpeedTest Tracker URL (e.g., https://speedtest.example.com): " API_HOST
+    if [[ -n "$API_HOST" && "$API_HOST" =~ ^https?:// ]]; then
+      API_HOST="${API_HOST%/}"  # Remove trailing slash
+      break
+    fi
+    echo "Please enter a valid URL starting with http:// or https://"
+  done
+  
+  while true; do
+    read -p "API Bearer Token: " BEARER_TOKEN
+    if [[ -n "$BEARER_TOKEN" ]]; then
+      break
+    fi
+    echo "Bearer token cannot be empty"
+  done
 fi
 
+# Install dependencies
 echo "[*] Installing system dependencies..."
-apt-get update -y
-apt-get install -y python3 python3-venv python3-pip
+apt-get update -q
+apt-get install -y python3 python3-venv python3-pip >/dev/null
 
-echo "[*] Creating system user for the application..."
+# Create user
 if ! id "${APP_NAME}" &>/dev/null; then
-    useradd --system --no-create-home --shell /usr/sbin/nologin "${APP_NAME}"
-    echo "[*] Created system user: ${APP_NAME}"
-else
-    echo "[*] System user ${APP_NAME} already exists"
+  useradd --system --no-create-home --shell /usr/sbin/nologin "${APP_NAME}"
 fi
 
-echo "[*] Creating install directory at ${INSTALL_DIR}..."
+# Create directories
 mkdir -p "${INSTALL_DIR}"
-
-echo "[*] Creating log directory and setting permissions..."
 mkdir -p /var/log
-touch /var/log/speedtest-bridge.log
-chown "${APP_NAME}":"${APP_NAME}" /var/log/speedtest-bridge.log
-chmod 644 /var/log/speedtest-bridge.log
 
-echo "[*] Copying application files to ${INSTALL_DIR}..."
+# Copy application files
+echo "[*] Installing application..."
 cp -r "$(dirname "$0")"/* "${INSTALL_DIR}/"
 
-echo "[*] Setting ownership of application directory..."
-chown -R "${APP_NAME}":"${APP_NAME}" "${INSTALL_DIR}"
-
-echo "[*] Creating Python virtual environment..."
+# Create virtual environment and install dependencies
 python3 -m venv "${VENV_DIR}"
+"${VENV_DIR}/bin/pip" install -q --upgrade pip
+"${VENV_DIR}/bin/pip" install -q -r "${INSTALL_DIR}/requirements.txt"
 
-echo "[*] Installing Python dependencies..."
-"${VENV_DIR}/bin/pip" install --upgrade pip
-"${VENV_DIR}/bin/pip" install -r "${INSTALL_DIR}/requirements.txt"
+# Create or restore configuration
+if [ -n "$EXISTING_CONFIG" ]; then
+  echo "[*] Restoring existing configuration..."
+  echo "$EXISTING_CONFIG" > "${CONFIG_FILE}"
+else
+  echo "[*] Creating configuration..."
+  cat > "${CONFIG_FILE}" << EOF
+{
+  "api_host": "${API_HOST}",
+  "bearer_token": "${BEARER_TOKEN}"
+}
+EOF
+fi
 
-echo "[*] Creating systemd unit file..."
-cat > "${INSTALL_DIR}/${APP_NAME}.service" << EOF
+# Set permissions
+chown -R "${APP_NAME}":"${APP_NAME}" "${INSTALL_DIR}"
+chmod 600 "${CONFIG_FILE}"
+touch /var/log/speedtest-bridge.log
+chown "${APP_NAME}":"${APP_NAME}" /var/log/speedtest-bridge.log
+
+# Create and install systemd service
+cat > "${SYSTEMD_UNIT}" << EOF
 [Unit]
-Description=Speedtest Metrics Server
+Description=Speedtest API Polling Exporter for Prometheus
 After=network.target
 
 [Service]
@@ -84,135 +128,14 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF
 
-echo "[*] Installing systemd unit..."
-cp "${INSTALL_DIR}/${APP_NAME}.service" "${SYSTEMD_UNIT}"
-
-echo "[*] Reloading systemd..."
+# Start service
 systemctl daemon-reload
-
-echo "[*] Enabling and starting service..."
 systemctl enable --now "${APP_NAME}.service"
 
-echo "[*] Configuring firewall to restrict access..."
-# Check if ufw is available and active
-if command -v ufw >/dev/null 2>&1; then
-  echo "[*] Configuring UFW firewall rules..."
-  # Allow from localhost only by default for security
-  ufw allow from 127.0.0.1 to any port ${PORT} comment "speedtest-metrics localhost access"
-  ufw allow from ::1 to any port ${PORT} comment "speedtest-metrics localhost access IPv6"
-  
-  # Check if ufw is active
-  if ufw status | grep -q "Status: active"; then
-    echo "[*] UFW firewall rules applied. Service restricted to localhost access."
-    echo "[!] If your SpeedTest app is on a different machine, run:"
-    echo "    sudo ufw allow from YOUR_SPEEDTEST_IP to any port ${PORT}"
-  else
-    echo "[!] UFW is available but not active. Consider enabling it for security:"
-    echo "    sudo ufw enable"
-  fi
-elif command -v firewall-cmd >/dev/null 2>&1; then
-  echo "[*] Configuring firewalld rules..."
-  # For RHEL/CentOS systems with firewalld
-  firewall-cmd --permanent --add-rich-rule="rule family='ipv4' source address='127.0.0.1' port protocol='tcp' port='${PORT}' accept" 2>/dev/null || true
-  firewall-cmd --permanent --add-rich-rule="rule family='ipv6' source address='::1' port protocol='tcp' port='${PORT}' accept" 2>/dev/null || true
-  firewall-cmd --reload 2>/dev/null || true
-  echo "[*] firewalld rules applied for localhost access."
-  echo "[!] If your SpeedTest app is on a different machine, run:"
-  echo "    sudo firewall-cmd --permanent --add-rich-rule=\"rule family='ipv4' source address='YOUR_SPEEDTEST_IP' port protocol='tcp' port='${PORT}' accept\""
-  echo "    sudo firewall-cmd --reload"
-else
-  echo "[!] No supported firewall (ufw/firewalld) detected."
-  echo "[!] Service is accessible from any IP on port ${PORT}."
-  echo "[!] Consider configuring iptables or your system firewall manually."
-fi
-
-echo "[*] Setup complete. Service status:"
-systemctl status "${APP_NAME}.service" --no-pager
-
-echo "[*] Creating Alloy configuration file..."
-ALLOY_DIR="/etc/alloy"
-SPEEDTEST_ALLOY_CFG="${ALLOY_DIR}/speedtest.alloy"
-
-if [ -d "$ALLOY_DIR" ]; then
-  echo "[*] Found Alloy directory at $ALLOY_DIR, creating speedtest configuration..."
-  
-  cat <<EOF > "$SPEEDTEST_ALLOY_CFG"
-prometheus.scrape "internet_speedtest" {
-  targets = [
-      { __address__ = "localhost:${PORT}" },
-  ]
-  forward_to = [prometheus.relabel.internet_speedtest.receiver]
-
-  scrape_interval = "60s"
-}
-
-prometheus.relabel "internet_speedtest" {
-  forward_to = [prometheus.remote_write.metrics_service.receiver]
-  rule {
-    target_label = "job"
-    replacement  = "internet_speedtest"
-  }
-  rule {
-    target_label = "site"
-    replacement  = "TMPE"
-  }
-}
-EOF
-  
-  echo "[*] Created speedtest configuration at $SPEEDTEST_ALLOY_CFG"
-  echo "[*] Restarting Alloy to apply changes..."
-  systemctl restart alloy || true
-else
-  echo "[!] Alloy directory not found at $ALLOY_DIR. Skipping configuration creation."
-  echo "[!] If you have Alloy installed elsewhere, manually create the speedtest.alloy file."
-fi
-
 echo ""
-echo "=========================================="
-echo "SETUP COMPLETE - WEBHOOK CONFIGURATION"
-echo "=========================================="
+echo "✅ Setup complete!"
 echo ""
-echo "Your speedtest metrics server is now running on port ${PORT}."
+echo "Metrics: http://localhost:${PORT}/metrics"
 echo ""
-echo "To configure the webhook in your SpeedTest application:"
-echo ""
-echo "1. Webhook URL Configuration:"
-echo "   - If SpeedTest app is on the SAME machine:"
-echo "     http://localhost:${PORT}/webhook"
-echo "     OR"
-echo "     http://127.0.0.1:${PORT}/webhook"
-echo ""
-echo "   - If SpeedTest app is on a DIFFERENT machine:"
-echo "     http://YOUR_SERVER_IP:${PORT}/webhook"
-echo "     (Replace YOUR_SERVER_IP with this machine's IP address)"
-echo ""
-echo "2. Protocol Notes:"
-echo "   - Use HTTP (not HTTPS) unless you've configured SSL/TLS"
-echo "   - Ensure port ${PORT} is accessible from the SpeedTest app"
-echo "   - Check firewall rules if webhook calls fail"
-echo ""
-echo "3. Webhook Payload:"
-echo "   - The webhook should send POST requests"
-echo "   - Content-Type: application/json"
-echo "   - Expected payload format with fields: ping, download, upload, packetLoss"
-echo "   - Download and upload values should be in bits per second"
-echo ""
-echo "4. Security Configuration:"
-echo "   - Service is configured for localhost access only by default"
-echo "   - If SpeedTest app is on a different machine, configure firewall:"
-echo "     sudo ufw allow from SPEEDTEST_IP to any port ${PORT}"
-echo "     (Replace SPEEDTEST_IP with the actual IP address)"
-echo ""
-echo "5. Test the webhook:"
-echo "   curl -X POST http://localhost:${PORT}/webhook \\"
-echo "        -H 'Content-Type: application/json' \\"
-echo "        -d '{\"ping\":15.2,\"download\":937100616,\"upload\":114435608,\"packetLoss\":0}'"
-echo ""
-echo "5. View metrics:"
-echo "   curl http://localhost:${PORT}/metrics"
-echo ""
-echo "6. Check logs for debugging:"
-echo "   tail -f /var/log/speedtest-bridge.log"
-echo ""
-echo "=========================================="
-
+echo "Check status: sudo systemctl status ${APP_NAME}"
+echo "View logs:    sudo journalctl -u ${APP_NAME} -f"
