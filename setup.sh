@@ -139,7 +139,6 @@ if [ -f "$ALLOY_CFG" ]; then
   if ! grep -q 'prometheus.scrape "speedtest"' "$ALLOY_CFG"; then
     cat <<EOF >> "$ALLOY_CFG"
 
-# Added by speedtest-metrics setup.sh
 prometheus.scrape "speedtest" {
   targets = [
     "http://localhost:${PORT}/metrics"
