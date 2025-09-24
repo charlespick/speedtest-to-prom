@@ -148,8 +148,6 @@ prometheus.scrape "internet_speedtest" {
 
 prometheus.relabel "internet_speedtest" {
   forward_to = [prometheus.remote_write.metrics_service.receiver]
-
-  // Apply static labels
   rule {
     target_label = "job"
     replacement  = "internet_speedtest"
@@ -157,12 +155,6 @@ prometheus.relabel "internet_speedtest" {
   rule {
     target_label = "site"
     replacement  = "TMPE"
-  }
-
-  // Optionally, rename instance so it's not the host running Alloy
-  rule {
-    target_label = "instance"
-    replacement  = "speed01.makerland.xyz"
   }
 }
 EOF
