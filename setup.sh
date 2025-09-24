@@ -76,7 +76,7 @@ User=${APP_NAME}
 Group=${APP_NAME}
 WorkingDirectory=${INSTALL_DIR}
 Environment=PORT=${PORT}
-ExecStart=${VENV_DIR}/bin/uvicorn app.py:app --host 0.0.0.0 --port ${PORT}
+ExecStart=${VENV_DIR}/bin/uvicorn app:app --host 0.0.0.0 --port ${PORT}
 Restart=always
 RestartSec=10
 
