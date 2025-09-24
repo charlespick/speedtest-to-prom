@@ -34,17 +34,28 @@ echo "[*] Installing system dependencies..."
 apt-get update -y
 apt-get install -y python3 python3-venv python3-pip
 
+echo "[*] Creating system user for the application..."
+if ! id "${APP_NAME}" &>/dev/null; then
+    useradd --system --no-create-home --shell /usr/sbin/nologin "${APP_NAME}"
+    echo "[*] Created system user: ${APP_NAME}"
+else
+    echo "[*] System user ${APP_NAME} already exists"
+fi
+
 echo "[*] Creating install directory at ${INSTALL_DIR}..."
 mkdir -p "${INSTALL_DIR}"
 
 echo "[*] Creating log directory and setting permissions..."
 mkdir -p /var/log
 touch /var/log/speedtest-bridge.log
-chown nobody:nobody /var/log/speedtest-bridge.log
+chown "${APP_NAME}":"${APP_NAME}" /var/log/speedtest-bridge.log
 chmod 644 /var/log/speedtest-bridge.log
 
 echo "[*] Copying application files to ${INSTALL_DIR}..."
 cp -r "$(dirname "$0")"/* "${INSTALL_DIR}/"
+
+echo "[*] Setting ownership of application directory..."
+chown -R "${APP_NAME}":"${APP_NAME}" "${INSTALL_DIR}"
 
 echo "[*] Creating Python virtual environment..."
 python3 -m venv "${VENV_DIR}"
@@ -61,8 +72,8 @@ After=network.target
 
 [Service]
 Type=exec
-User=nobody
-Group=nobody
+User=${APP_NAME}
+Group=${APP_NAME}
 WorkingDirectory=${INSTALL_DIR}
 Environment=PORT=${PORT}
 ExecStart=${VENV_DIR}/bin/uvicorn app.py:app --host 0.0.0.0 --port ${PORT}
