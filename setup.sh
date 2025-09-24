@@ -129,16 +129,14 @@ fi
 echo "[*] Setup complete. Service status:"
 systemctl status "${APP_NAME}.service" --no-pager
 
-echo "[*] Checking for Alloy config..."
-ALLOY_CFG="/etc/alloy/config.alloy"
+echo "[*] Creating Alloy configuration file..."
+ALLOY_DIR="/etc/alloy"
+SPEEDTEST_ALLOY_CFG="${ALLOY_DIR}/speedtest.alloy"
 
-if [ -f "$ALLOY_CFG" ]; then
-  echo "[*] Found $ALLOY_CFG, ensuring scrape job is present..."
-
-  # Only add if not already present
-  if ! grep -q 'prometheus.scrape "speedtest"' "$ALLOY_CFG"; then
-    cat <<EOF >> "$ALLOY_CFG"
-
+if [ -d "$ALLOY_DIR" ]; then
+  echo "[*] Found Alloy directory at $ALLOY_DIR, creating speedtest configuration..."
+  
+  cat <<EOF > "$SPEEDTEST_ALLOY_CFG"
 prometheus.scrape "internet_speedtest" {
   targets = [
       { __address__ = "localhost:${PORT}" },
@@ -167,16 +165,14 @@ prometheus.relabel "internet_speedtest" {
     replacement  = "speed01.makerland.xyz"
   }
 }
-
 EOF
-    echo "[*] Scrape block appended to Alloy config."
-    echo "[*] Restarting Alloy to apply changes..."
-    systemctl restart alloy || true
-  else
-    echo "[*] Scrape block already present in Alloy config. Skipping."
-  fi
+  
+  echo "[*] Created speedtest configuration at $SPEEDTEST_ALLOY_CFG"
+  echo "[*] Restarting Alloy to apply changes..."
+  systemctl restart alloy || true
 else
-  echo "[!] Alloy config not found at $ALLOY_CFG. Skipping scrape setup."
+  echo "[!] Alloy directory not found at $ALLOY_DIR. Skipping configuration creation."
+  echo "[!] If you have Alloy installed elsewhere, manually create the speedtest.alloy file."
 fi
 
 echo ""
