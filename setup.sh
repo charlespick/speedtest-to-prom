@@ -139,12 +139,35 @@ if [ -f "$ALLOY_CFG" ]; then
   if ! grep -q 'prometheus.scrape "speedtest"' "$ALLOY_CFG"; then
     cat <<EOF >> "$ALLOY_CFG"
 
-prometheus.scrape "speedtest" {
+prometheus.scrape "internet_speedtest" {
   targets = [
-    "http://localhost:${PORT}/metrics"
+      { __address__ = "localhost:${PORT}" },
   ]
-  forward_to = [prometheus.remote_write.grafanacloud.receiver]
+  forward_to = [prometheus.relabel.internet_speedtest.receiver]
+
+  scrape_interval = "60s"
 }
+
+prometheus.relabel "internet_speedtest" {
+  forward_to = [prometheus.remote_write.metrics_service.receiver]
+
+  // Apply static labels
+  rule {
+    target_label = "job"
+    replacement  = "internet_speedtest"
+  }
+  rule {
+    target_label = "site"
+    replacement  = "TMPE"
+  }
+
+  // Optionally, rename instance so it's not the host running Alloy
+  rule {
+    target_label = "instance"
+    replacement  = "speed01.makerland.xyz"
+  }
+}
+
 EOF
     echo "[*] Scrape block appended to Alloy config."
     echo "[*] Restarting Alloy to apply changes..."
