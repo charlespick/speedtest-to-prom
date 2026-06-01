@@ -1,5 +1,5 @@
-[!IMPORTANT]
-This project is no longer maintained because the speedtest tracker project now contains a native Prometheus endpoint
+> [!IMPORTANT]
+> This project is no longer maintained because the speedtest tracker project now contains a native Prometheus endpoint
 
 # Speedtest to Prometheus Exporter
 
