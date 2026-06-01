@@ -1,3 +1,6 @@
+[!IMPORTANT]
+This project is no longer maintained because the speedtest tracker project now contains a native Prometheus endpoint
+
 # Speedtest to Prometheus Exporter
 
 When Prometheus scrapes `/metrics`, the service fetches fresh data from your SpeedTest Tracker API and returns speedtest metrics.
