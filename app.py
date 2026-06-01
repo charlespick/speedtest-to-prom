@@ -25,10 +25,11 @@ ping_low_gauge = Gauge("internet_ping_low_ms", "Lowest ping in milliseconds")
 ping_high_gauge = Gauge("internet_ping_high_ms", "Highest ping in milliseconds")
 
 def _load_config():
-    api_host = os.getenv('API_HOST')
-    bearer_token = os.getenv('BEARER_TOKEN')
-    if not api_host or not bearer_token:
-        raise RuntimeError("Missing required environment variables: API_HOST and BEARER_TOKEN must be set")
+    api_host = os.getenv('API_HOST', '').strip()
+    bearer_token = os.getenv('BEARER_TOKEN', '').strip()
+    missing = [name for name, val in [('API_HOST', api_host), ('BEARER_TOKEN', bearer_token)] if not val]
+    if missing:
+        raise RuntimeError(f"Missing required environment variable(s): {', '.join(missing)}")
     return {'api_host': api_host, 'bearer_token': bearer_token}
 
 try:
