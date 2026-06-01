@@ -2,7 +2,19 @@
 
 When Prometheus scrapes `/metrics`, the service fetches fresh data from your SpeedTest Tracker API and returns speedtest metrics.
 
-## Setup
+## Docker (recommended)
+
+```bash
+docker run -d \
+  -e API_HOST=https://speedtest.example.com \
+  -e BEARER_TOKEN=your_token_here \
+  -p 8000:8000 \
+  ghcr.io/charlespick/speedtest-to-prom:main
+```
+
+The `PORT` environment variable can optionally override the default port (`8000`).
+
+## Manual Setup
 
 1. **Get your API token from SpeedTest Tracker:**
    - Log into your SpeedTest Tracker

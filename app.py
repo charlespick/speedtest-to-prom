@@ -1,5 +1,4 @@
 import os
-import json
 import logging
 from fastapi import FastAPI, HTTPException
 from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
@@ -10,7 +9,6 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('/var/log/speedtest-bridge.log'),
         logging.StreamHandler()
     ]
 )
@@ -26,32 +24,24 @@ ping_jitter_gauge = Gauge("internet_ping_jitter_ms", "Ping jitter in millisecond
 ping_low_gauge = Gauge("internet_ping_low_ms", "Lowest ping in milliseconds")
 ping_high_gauge = Gauge("internet_ping_high_ms", "Highest ping in milliseconds")
 
-def load_config():
-    config_path = os.path.join(os.path.dirname(__file__), 'config.json')
-    try:
-        with open(config_path, 'r') as f:
-            config = json.load(f)
-        required_keys = ['api_host', 'bearer_token']
-        for key in required_keys:
-            if key not in config:
-                raise ValueError(f"Missing required config key: {key}")
-        return config
-    except FileNotFoundError:
-        logger.error(f"Config file not found at {config_path}")
-        raise HTTPException(status_code=500, detail="Configuration file not found")
-    except json.JSONDecodeError as e:
-        logger.error(f"Invalid JSON in config file: {e}")
-        raise HTTPException(status_code=500, detail="Invalid configuration file")
-    except Exception as e:
-        logger.error(f"Error loading config: {e}")
-        raise HTTPException(status_code=500, detail="Configuration error")
+def _load_config():
+    api_host = os.getenv('API_HOST')
+    bearer_token = os.getenv('BEARER_TOKEN')
+    if not api_host or not bearer_token:
+        raise RuntimeError("Missing required environment variables: API_HOST and BEARER_TOKEN must be set")
+    return {'api_host': api_host, 'bearer_token': bearer_token}
+
+try:
+    _config = _load_config()
+except RuntimeError as e:
+    logger.error(str(e))
+    raise SystemExit(1)
 
 async def fetch_latest_speedtest():
-    config = load_config()
-    url = f"{config['api_host'].rstrip('/')}/api/v1/results/latest"
+    url = f"{_config['api_host'].rstrip('/')}/api/v1/results/latest"
     headers = {
         'Accept': 'application/json',
-        'Authorization': f"Bearer {config['bearer_token']}"
+        'Authorization': f"Bearer {_config['bearer_token']}"
     }
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
